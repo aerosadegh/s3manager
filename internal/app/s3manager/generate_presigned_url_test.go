@@ -84,14 +84,15 @@ func TestHandleGenerateURL(t *testing.T) {
 			s3 := &mocks.S3Mock{
 				PresignedGetObjectFunc: tc.presignedGetObjectFunc,
 			}
+			instances := s3manager.S3Instances{{ID: "1", Name: "primary", Client: s3}}
 
 			r := mux.NewRouter()
-			r.Handle("/api/buckets/{bucketName}/objects/{objectName}/url", s3manager.HandleGenerateURL(s3)).Methods(http.MethodGet)
+			r.Handle("/{instance}/api/buckets/{bucketName}/objects/{objectName}/url", s3manager.HandleGenerateURL(instances)).Methods(http.MethodGet)
 
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
-			resp, err := http.Get(fmt.Sprintf("%s/api/buckets/my-bucket/objects/my-object/url?expiry=%s", ts.URL, tc.expiry))
+			resp, err := http.Get(fmt.Sprintf("%s/primary/api/buckets/my-bucket/objects/my-object/url?expiry=%s", ts.URL, tc.expiry))
 			is.NoErr(err)
 			defer func() {
 				err = resp.Body.Close()
@@ -104,4 +105,31 @@ func TestHandleGenerateURL(t *testing.T) {
 			is.True(strings.Contains(string(body), tc.expectedBodyContains))
 		})
 	}
+}
+
+func TestHandleGenerateURLUsesPresigner(t *testing.T) {
+	t.Parallel()
+	is := is.New(t)
+
+	presignedURL, _ := url.Parse("https://public.example.com/bucket/object?X-Amz-Signature=abc123")
+	instances := s3manager.S3Instances{{
+		ID:     "1",
+		Name:   "primary",
+		Client: &mocks.S3Mock{},
+		Presigner: &mocks.S3Mock{
+			PresignedGetObjectFunc: func(context.Context, string, string, time.Duration, url.Values) (*url.URL, error) {
+				return presignedURL, nil
+			},
+		},
+	}}
+
+	r := mux.NewRouter()
+	r.Handle("/{instance}/api/buckets/{bucketName}/objects/{objectName}/url", s3manager.HandleGenerateURL(instances)).Methods(http.MethodGet)
+
+	req := httptest.NewRequest(http.MethodGet, "/primary/api/buckets/my-bucket/objects/my-object/url?expiry=3600", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	is.Equal(http.StatusOK, rr.Code)
+	is.True(strings.Contains(rr.Body.String(), "public.example.com"))
 }

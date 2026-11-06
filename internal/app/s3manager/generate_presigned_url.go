@@ -13,9 +13,19 @@ import (
 // maxPresignedURLExpiry is the longest lifetime S3 accepts for a presigned URL.
 const maxPresignedURLExpiry = 7 * 24 * time.Hour
 
-// HandleGenerateURL generates a presigned URL.
-func HandleGenerateURL(s3 S3) http.HandlerFunc {
+// HandleGenerateURL generates a presigned URL. It is signed by the instance's
+// Presigner, which may address S3 differently than the app itself does.
+func HandleGenerateURL(instances S3Instances) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		instance, ok := resolveInstance(w, r, instances)
+		if !ok {
+			return
+		}
+		presigner := instance.Presigner
+		if presigner == nil {
+			presigner = instance.Client
+		}
+
 		bucketName := mux.Vars(r)["bucketName"]
 		objectName := mux.Vars(r)["objectName"]
 
@@ -31,7 +41,7 @@ func HandleGenerateURL(s3 S3) http.HandlerFunc {
 		}
 
 		expiry := time.Duration(seconds) * time.Second
-		presignedURL, err := s3.PresignedGetObject(r.Context(), bucketName, objectName, expiry, url.Values{})
+		presignedURL, err := presigner.PresignedGetObject(r.Context(), bucketName, objectName, expiry, url.Values{})
 		if err != nil {
 			handleHTTPError(w, fmt.Errorf("error generating url: %w", err))
 			return

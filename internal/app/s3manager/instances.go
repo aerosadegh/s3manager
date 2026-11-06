@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,9 @@ type S3InstanceConfig struct {
 	SignatureType       string
 	BucketLookup        string
 	PublicURL           string
+	// PresignURL is the address presigned links are signed for, such as
+	// https://s3.example.com, when it differs from Endpoint. Requires Region.
+	PresignURL string
 	// Buckets are listed on top of the ones the instance reports itself, so
 	// that buckets owned by someone else, like public datasets, can be browsed.
 	Buckets []string
@@ -38,6 +42,9 @@ type S3Instance struct {
 	ID     string
 	Name   string
 	Client S3
+	// Presigner signs the time-limited download links. It is Client unless
+	// the links must point to a different address than the app talks to.
+	Presigner S3
 	// BucketLookup is how the client addresses buckets, which public links
 	// follow unless PublicURL overrides them.
 	BucketLookup minio.BucketLookupType
@@ -94,7 +101,15 @@ func NewS3Instances(configs []S3InstanceConfig) (S3Instances, error) {
 			}
 		}
 
-		client, err := newS3Client(config, bucketLookup)
+		creds, err := newCredentials(config)
+		if err != nil {
+			return nil, err
+		}
+		client, err := newS3Client(config, bucketLookup, creds)
+		if err != nil {
+			return nil, err
+		}
+		presigner, err := newPresigner(config, bucketLookup, creds, client)
 		if err != nil {
 			return nil, err
 		}
@@ -102,6 +117,7 @@ func NewS3Instances(configs []S3InstanceConfig) (S3Instances, error) {
 			ID:           strconv.Itoa(i + 1),
 			Name:         config.Name,
 			Client:       client,
+			Presigner:    presigner,
 			BucketLookup: bucketLookup,
 			PublicURL:    config.PublicURL,
 			Buckets:      config.Buckets,
@@ -111,22 +127,29 @@ func NewS3Instances(configs []S3InstanceConfig) (S3Instances, error) {
 	return instances, nil
 }
 
+// newCredentials creates the credentials described by a single instance
+// configuration. They are shared by all of the instance's clients, so that IAM
+// credentials are fetched only once.
+func newCredentials(config S3InstanceConfig) (*credentials.Credentials, error) {
+	if config.UseIam {
+		return credentials.NewIAM(config.IamEndpoint), nil
+	}
+
+	signatureType, ok := signatureTypes[config.SignatureType]
+	if !ok {
+		return nil, fmt.Errorf("invalid SIGNATURE_TYPE: %s", config.SignatureType)
+	}
+
+	return credentials.NewStatic(config.AccessKeyID, config.SecretAccessKey, "", signatureType), nil
+}
+
 // newS3Client creates the S3 client described by a single instance configuration.
-func newS3Client(config S3InstanceConfig, bucketLookup minio.BucketLookupType) (S3, error) {
+func newS3Client(config S3InstanceConfig, bucketLookup minio.BucketLookupType, creds *credentials.Credentials) (*minio.Client, error) {
 	opts := &minio.Options{
+		Creds:        creds,
 		Secure:       config.UseSSL,
 		Region:       config.Region,
 		BucketLookup: bucketLookup,
-	}
-
-	if config.UseIam {
-		opts.Creds = credentials.NewIAM(config.IamEndpoint)
-	} else {
-		signatureType, ok := signatureTypes[config.SignatureType]
-		if !ok {
-			return nil, fmt.Errorf("invalid SIGNATURE_TYPE: %s", config.SignatureType)
-		}
-		opts.Creds = credentials.NewStatic(config.AccessKeyID, config.SecretAccessKey, "", signatureType)
 	}
 
 	if config.UseSSL && config.SkipSSLVerification {
@@ -180,4 +203,39 @@ func resolveInstance(w http.ResponseWriter, r *http.Request, instances S3Instanc
 	}
 
 	return instance, true
+}
+
+// newPresigner returns the client that signs an instance's download links:
+// its own client, unless PresignURL names a different address. Presigning
+// happens locally, apart from looking up a bucket's region, which is why a
+// separate address requires a region: otherwise that lookup would go to an
+// address the app may not even be able to reach.
+func newPresigner(config S3InstanceConfig, bucketLookup minio.BucketLookupType, creds *credentials.Credentials, client *minio.Client) (S3, error) {
+	if config.PresignURL == "" {
+		return client, nil
+	}
+
+	presignURL, err := url.Parse(config.PresignURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PRESIGN_URL of instance %s: %w", config.Name, err)
+	}
+	if presignURL.Scheme != "http" && presignURL.Scheme != "https" || presignURL.Host == "" ||
+		strings.Trim(presignURL.Path, "/") != "" || presignURL.RawQuery != "" || presignURL.Fragment != "" || presignURL.User != nil {
+		return nil, fmt.Errorf("PRESIGN_URL of instance %s must be an http or https URL without a path, such as https://s3.example.com", config.Name)
+	}
+	if config.Region == "" {
+		return nil, fmt.Errorf("PRESIGN_URL of instance %s requires REGION to be set", config.Name)
+	}
+
+	presigner, err := minio.New(presignURL.Host, &minio.Options{
+		Creds:        creds,
+		Secure:       presignURL.Scheme == "https",
+		Region:       config.Region,
+		BucketLookup: bucketLookup,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error creating presigning client for instance %s: %w", config.Name, err)
+	}
+
+	return presigner, nil
 }

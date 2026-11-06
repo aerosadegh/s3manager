@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudlena/s3manager/internal/app/s3manager"
 	"github.com/cloudlena/s3manager/internal/app/s3manager/mocks"
@@ -139,6 +140,33 @@ func TestNewS3Instances(t *testing.T) {
 			expectError: true,
 		},
 		{
+			it: "creates an instance with a presign URL",
+			configs: []s3manager.S3InstanceConfig{
+				{Name: "test", Endpoint: "garage:3900", SignatureType: "V4", Region: "garage", PresignURL: "https://s3.example.com/", AccessKeyID: "key", SecretAccessKey: "secret"},
+			},
+		},
+		{
+			it: "returns an error for a presign URL without a region",
+			configs: []s3manager.S3InstanceConfig{
+				{Name: "test", Endpoint: "garage:3900", SignatureType: "V4", PresignURL: "https://s3.example.com", AccessKeyID: "key", SecretAccessKey: "secret"},
+			},
+			expectError: true,
+		},
+		{
+			it: "returns an error for a presign URL without a scheme",
+			configs: []s3manager.S3InstanceConfig{
+				{Name: "test", Endpoint: "garage:3900", SignatureType: "V4", Region: "garage", PresignURL: "s3.example.com", AccessKeyID: "key", SecretAccessKey: "secret"},
+			},
+			expectError: true,
+		},
+		{
+			it: "returns an error for a presign URL with a path",
+			configs: []s3manager.S3InstanceConfig{
+				{Name: "test", Endpoint: "garage:3900", SignatureType: "V4", Region: "garage", PresignURL: "https://example.com/s3", AccessKeyID: "key", SecretAccessKey: "secret"},
+			},
+			expectError: true,
+		},
+		{
 			it: "creates an instance with configured buckets",
 			configs: []s3manager.S3InstanceConfig{
 				{Name: "test", Endpoint: "s3.amazonaws.com", SignatureType: "Anonymous", Buckets: []string{"noaa-ghcn-pds", "sentinel-cogs"}},
@@ -171,6 +199,54 @@ func TestNewS3Instances(t *testing.T) {
 				is.Equal(tc.configs[i].Name, instance.Name)
 				is.True(instance.Client != nil)
 			}
+		})
+	}
+}
+
+func TestNewS3InstancesPresignURL(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		it          string
+		presignURL  string
+		expectedURL string
+	}{
+		{
+			it:          "signs links for the endpoint by default",
+			expectedURL: "http://garage:3900/my-bucket/my-object",
+		},
+		{
+			it:          "signs links for the presign URL",
+			presignURL:  "https://s3.example.com",
+			expectedURL: "https://s3.example.com/my-bucket/my-object",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.it, func(t *testing.T) {
+			t.Parallel()
+			is := is.New(t)
+
+			// The endpoint does not resolve, so this also shows that presigning
+			// makes no requests once the region is known.
+			instances, err := s3manager.NewS3Instances([]s3manager.S3InstanceConfig{{
+				Name:            "test",
+				Endpoint:        "garage:3900",
+				AccessKeyID:     "key",
+				SecretAccessKey: "secret",
+				SignatureType:   "V4",
+				Region:          "garage",
+				BucketLookup:    "Path",
+				PresignURL:      tc.presignURL,
+			}})
+			is.NoErr(err)
+
+			presignedURL, err := instances[0].Presigner.PresignedGetObject(t.Context(), "my-bucket", "my-object", time.Hour, nil)
+			is.NoErr(err)
+
+			presignedURL.RawQuery = ""
+			is.Equal(tc.expectedURL, presignedURL.String())
+			is.Equal("http://garage:3900", instances[0].Client.EndpointURL().String())
 		})
 	}
 }

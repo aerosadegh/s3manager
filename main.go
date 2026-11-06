@@ -104,6 +104,7 @@ func parseS3Instances() []s3manager.S3InstanceConfig {
 			SignatureType:       viper.GetString(prefix + "SIGNATURE_TYPE"),
 			BucketLookup:        viper.GetString(prefix + "BUCKET_LOOKUP"),
 			PublicURL:           viper.GetString(prefix + "PUBLIC_URL"),
+			PresignURL:          viper.GetString(prefix + "PRESIGN_URL"),
 			Buckets:             parseList(viper.GetString(prefix + "BUCKETS")),
 		}
 
@@ -175,7 +176,7 @@ func main() {
 	r.Handle("/{instance}/api/buckets", withInstance(s3manager.HandleCreateBucket)).Methods(http.MethodPost)
 	r.Handle("/{instance}/api/buckets/{bucketName}/objects", withInstanceAndOptions(s3manager.HandleCreateObject)).Methods(http.MethodPost)
 	r.Handle("/{instance}/api/buckets/{bucketName}/objects/bulk-download", withInstanceAndOptions(s3manager.HandleBulkDownloadObjects)).Methods(http.MethodPost)
-	r.Handle("/{instance}/api/buckets/{bucketName}/objects/{objectName:.*}/url", withInstance(s3manager.HandleGenerateURL)).Methods(http.MethodGet)
+	r.Handle("/{instance}/api/buckets/{bucketName}/objects/{objectName:.*}/url", s3manager.HandleGenerateURL(instances)).Methods(http.MethodGet)
 	r.Handle("/{instance}/api/buckets/{bucketName}/objects/{objectName:.*}/public-access", s3manager.HandleCheckPublicAccess(instances)).Methods(http.MethodGet)
 	if opts.ShowMetadata {
 		r.Handle("/{instance}/api/buckets/{bucketName}/objects/{objectName:.*}/metadata", withInstanceAndOptions(s3manager.HandleGetObjectMetadata)).Methods(http.MethodGet)
