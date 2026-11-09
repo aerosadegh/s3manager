@@ -44,7 +44,7 @@ func TestHandleGenerateURL(t *testing.T) {
 				return nil, nil
 			},
 			expiry:               "not-a-number",
-			expectedStatusCode:   http.StatusInternalServerError,
+			expectedStatusCode:   http.StatusBadRequest,
 			expectedBodyContains: "error converting expiry",
 		},
 		{
@@ -53,7 +53,7 @@ func TestHandleGenerateURL(t *testing.T) {
 				return nil, nil
 			},
 			expiry:               "0",
-			expectedStatusCode:   http.StatusInternalServerError,
+			expectedStatusCode:   http.StatusBadRequest,
 			expectedBodyContains: "invalid expiry value",
 		},
 		{
@@ -62,7 +62,7 @@ func TestHandleGenerateURL(t *testing.T) {
 				return nil, nil
 			},
 			expiry:               "604801",
-			expectedStatusCode:   http.StatusInternalServerError,
+			expectedStatusCode:   http.StatusBadRequest,
 			expectedBodyContains: "invalid expiry value",
 		},
 		{

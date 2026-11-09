@@ -32,3 +32,7 @@ Static assets and templates are embedded into the binary via `//go:embed`, and B
 ## Testing
 
 Tests live alongside source files: each handler file has a corresponding `_test.go` in package `s3manager_test`, and the few tests of unexported helpers use `*_internal_test.go` in package `s3manager`. Handler tests use the `S3` mock in `mocks/s3.go`, which moq generates — regenerate with `go generate ./...` if the interface changes. Tests use `github.com/matryer/is` for assertions.
+
+## Instructions
+
+- Don't add yourself as a commit author

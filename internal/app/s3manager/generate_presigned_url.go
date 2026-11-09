@@ -27,12 +27,12 @@ func HandleGenerateURL(instances S3Instances) http.HandlerFunc {
 
 		seconds, err := strconv.ParseInt(r.URL.Query().Get("expiry"), 10, 64)
 		if err != nil {
-			handleHTTPError(w, fmt.Errorf("error converting expiry: %w", err))
+			http.Error(w, fmt.Sprintf("error converting expiry: %v", err), http.StatusBadRequest)
 			return
 		}
 
 		if seconds < 1 || seconds > int64(maxPresignedURLExpiry/time.Second) {
-			handleHTTPError(w, fmt.Errorf("invalid expiry value: %v", seconds))
+			http.Error(w, fmt.Sprintf("invalid expiry value: %v", seconds), http.StatusBadRequest)
 			return
 		}
 
