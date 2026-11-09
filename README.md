@@ -125,6 +125,13 @@ podman run -p 8080:8080 -e 'ENDPOINT=s3.amazonaws.com' -e 'ACCESS_KEY_ID=XXX' -e
 
 For Kubernetes, there is a [Helm chart](https://github.com/sergeyshevch/s3manager-helm).
 
+Releases come with [SLSA Level 3](https://slsa.dev/) provenance, which can be checked with [slsa-verifier](https://github.com/slsa-framework/slsa-verifier):
+
+```shell
+slsa-verifier verify-artifact s3manager_Linux_x86_64.tar.gz --provenance-path multiple.intoto.jsonl --source-uri github.com/cloudlena/s3manager --source-tag v1.2.3
+slsa-verifier verify-image docker.io/cloudlena/s3manager@sha256:... --source-uri github.com/cloudlena/s3manager --source-tag v1.2.3
+```
+
 ### Running behind a reverse proxy
 
 Everyone who can reach an S3 Manager can use all of its [S3 instances](#s3-instances), so to give each team only its own accounts, run one S3 Manager per team behind a reverse proxy that authenticates each location, and set each one's `ROOT_URL` to the location it is served under.
