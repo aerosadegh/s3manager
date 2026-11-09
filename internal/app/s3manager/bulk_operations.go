@@ -143,7 +143,10 @@ func forEachKey(ctx context.Context, s3 S3, bucketName string, keys []string, fn
 // with nothing would silently come out as empty, and one on a provider that
 // can't page through V2 listings couldn't be listed at all. fn has already
 // seen the keys V2 listed before it failed, so the V1 listing resumes after
-// them instead of handing them to fn twice.
+// them instead of handing them to fn twice. That is also why it can't share
+// listWithV1Fallback, which starts over instead: resuming after the last key
+// is only safe for a recursive listing like this one, since a delimited one
+// reports a batch's folders after its objects.
 func forEachObjectInFolder(ctx context.Context, s3 S3, bucketName, prefix string, fn func(key string) error) error {
 	opts := minio.ListObjectsOptions{Prefix: prefix, Recursive: true}
 	lastKey, listErr, err := forEachListedObject(ctx, s3, bucketName, opts, fn)
