@@ -55,7 +55,7 @@ func parseConfiguration() configuration {
 		S3Instances: parseS3Instances(),
 		Options: s3manager.Options{
 			RootURL:       rootURL,
-			BucketName:    viper.GetString("BUCKET_NAME"),
+			BucketNames:   parseList(viper.GetString("BUCKET_NAME")),
 			AllowDelete:   viper.GetBool("ALLOW_DELETE"),
 			ListRecursive: viper.GetBool("LIST_RECURSIVE"),
 			ShowVersions:  viper.GetBool("SHOW_VERSIONS"),

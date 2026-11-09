@@ -84,7 +84,7 @@ func TestHandleGenerateURL(t *testing.T) {
 			s3 := &mocks.S3Mock{
 				PresignedGetObjectFunc: tc.presignedGetObjectFunc,
 			}
-			instances := s3manager.S3Instances{{ID: "1", Name: "primary", Client: s3}}
+			instances := s3manager.S3Instances{{ID: "1", Name: "primary", Client: s3, Presigner: s3}}
 
 			r := mux.NewRouter()
 			r.Handle("/{instance}/api/buckets/{bucketName}/objects/{objectName}/url", s3manager.HandleGenerateURL(instances)).Methods(http.MethodGet)

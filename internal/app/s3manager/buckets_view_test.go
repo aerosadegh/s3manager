@@ -24,7 +24,7 @@ func TestHandleBucketsView(t *testing.T) {
 	cases := []struct {
 		it                   string
 		instanceName         string
-		bucketName           string
+		bucketNames          []string
 		configuredBuckets    []string
 		listBucketsFunc      func(context.Context) ([]minio.BucketInfo, error)
 		expectedStatusCode   int
@@ -53,7 +53,7 @@ func TestHandleBucketsView(t *testing.T) {
 		{
 			it:           "only renders the configured bucket",
 			instanceName: "primary",
-			bucketName:   "BUCKET-NAME",
+			bucketNames:  []string{"BUCKET-NAME"},
 			listBucketsFunc: func(context.Context) ([]minio.BucketInfo, error) {
 				return []minio.BucketInfo{{Name: "BUCKET-NAME"}, {Name: "OTHER-BUCKET"}}, nil
 			},
@@ -62,9 +62,9 @@ func TestHandleBucketsView(t *testing.T) {
 			unexpectedInBody:     []string{"OTHER-BUCKET"},
 		},
 		{
-			it:           "only renders the configured buckets from a comma-separated list",
+			it:           "only renders the configured buckets from a list",
 			instanceName: "primary",
-			bucketName:   "BUCKET-NAME, THIRD-BUCKET",
+			bucketNames:  []string{"BUCKET-NAME", "THIRD-BUCKET"},
 			listBucketsFunc: func(context.Context) ([]minio.BucketInfo, error) {
 				return []minio.BucketInfo{{Name: "BUCKET-NAME"}, {Name: "OTHER-BUCKET"}, {Name: "THIRD-BUCKET"}}, nil
 			},
@@ -128,7 +128,7 @@ func TestHandleBucketsView(t *testing.T) {
 			r := mux.NewRouter()
 			r.Handle("/{instance}/buckets", s3manager.HandleBucketsView(instances, templates, s3manager.Options{
 				AllowDelete: true,
-				BucketName:  tc.bucketName,
+				BucketNames: tc.bucketNames,
 			})).Methods(http.MethodGet)
 
 			ts := httptest.NewServer(r)

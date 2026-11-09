@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"strings"
 	"time"
@@ -94,7 +95,7 @@ func HandleBulkDownloadObjects(s3 S3, opts Options) http.HandlerFunc {
 
 		zipName := fmt.Sprintf("%s-%s.zip", bucketName, time.Now().Format("20060102-150405"))
 		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", zipName))
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": zipName}))
 
 		zipWriter := zip.NewWriter(w)
 		defer func() {

@@ -84,8 +84,6 @@
             if (options.json !== undefined) {
                 init.headers = { "Content-Type": "application/json; charset=utf-8" };
                 init.body = typeof options.json === "string" ? options.json : JSON.stringify(options.json);
-            } else if (options.body !== undefined) {
-                init.body = options.body;
             }
 
             const response = await fetch(url, init);

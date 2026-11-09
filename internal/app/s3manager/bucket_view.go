@@ -162,7 +162,7 @@ func cursorPagingPossible(query listingQuery, opts Options) bool {
 }
 
 // parseListingQuery reads a bucket view request's query parameters, falling
-// back to defaults for missing or invalid values.
+// back to defaults for missing or invalid values. PerPage is always positive.
 func parseListingQuery(params url.Values) listingQuery {
 	query := listingQuery{
 		SortBy:    params.Get("sortBy"),

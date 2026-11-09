@@ -21,10 +21,6 @@ func HandleGenerateURL(instances S3Instances) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		presigner := instance.Presigner
-		if presigner == nil {
-			presigner = instance.Client
-		}
 
 		bucketName := mux.Vars(r)["bucketName"]
 		objectName := mux.Vars(r)["objectName"]
@@ -41,7 +37,7 @@ func HandleGenerateURL(instances S3Instances) http.HandlerFunc {
 		}
 
 		expiry := time.Duration(seconds) * time.Second
-		presignedURL, err := presigner.PresignedGetObject(r.Context(), bucketName, objectName, expiry, url.Values{})
+		presignedURL, err := instance.Presigner.PresignedGetObject(r.Context(), bucketName, objectName, expiry, url.Values{})
 		if err != nil {
 			handleHTTPError(w, fmt.Errorf("error generating url: %w", err))
 			return

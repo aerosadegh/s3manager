@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"net/http"
 	"slices"
-	"strings"
 
 	"github.com/minio/minio-go/v7"
 )
@@ -41,8 +40,8 @@ func HandleBucketsView(instances S3Instances, templates fs.FS, opts Options) htt
 			// the user can switch to another one instead of being stuck on an
 			// error page.
 			data.ErrorMessage = fmt.Sprintf("Unable to connect to S3 instance '%s'. Please check the credentials and try switching to another instance.", instance.Name)
-		case opts.BucketName != "":
-			data.Buckets = filterBuckets(addConfiguredBuckets(buckets, instance.Buckets), opts.BucketName)
+		case len(opts.BucketNames) > 0:
+			data.Buckets = filterBuckets(addConfiguredBuckets(buckets, instance.Buckets), opts.BucketNames)
 		default:
 			// Listing buckets is refused for anonymous access, so the
 			// configured buckets stand on their own when it fails.
@@ -66,22 +65,10 @@ func addConfiguredBuckets(buckets []minio.BucketInfo, names []string) []minio.Bu
 }
 
 // filterBuckets narrows a bucket listing down to the buckets the app is
-// restricted to. allowed is a single bucket name, or a comma-separated list
-// of names for an app restricted to more than one bucket. The result keeps
-// the order ListBuckets returned, not the order in allowed.
-func filterBuckets(buckets []minio.BucketInfo, allowed string) []minio.BucketInfo {
-	names := strings.Split(allowed, ",")
-	for i, name := range names {
-		names[i] = strings.TrimSpace(name)
-	}
-
-	var filtered []minio.BucketInfo
-
-	for _, bucket := range buckets {
-		if slices.Contains(names, bucket.Name) {
-			filtered = append(filtered, bucket)
-		}
-	}
-
-	return filtered
+// restricted to. The result keeps the order ListBuckets returned, not the
+// order in allowed.
+func filterBuckets(buckets []minio.BucketInfo, allowed []string) []minio.BucketInfo {
+	return slices.DeleteFunc(buckets, func(bucket minio.BucketInfo) bool {
+		return !slices.Contains(allowed, bucket.Name)
+	})
 }

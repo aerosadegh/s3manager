@@ -588,6 +588,8 @@
     const instanceURL = "{{ $instanceURL }}";
     const bucketName = "{{ .BucketName }}";
     const currentPath = "{{ .CurrentPath }}";
+    const currentSortBy = "{{ .SortBy }}";
+    const currentSortOrder = "{{ .SortOrder }}";
     const bucketURL = instanceURL + "/api/buckets/" + bucketName;
 
     // objectURL addresses an object in the API. Each segment of the key is
@@ -672,9 +674,6 @@
     }
 
     function sortBy(field) {
-        const params = new URLSearchParams(window.location.search);
-        const currentSortBy = params.get("sortBy") || "key";
-        const currentSortOrder = params.get("sortOrder") || "asc";
         const order = field === currentSortBy && currentSortOrder === "asc" ? "desc" : "asc";
 
         navigate(params => {

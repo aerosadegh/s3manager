@@ -103,7 +103,6 @@ func cappedListing(objs []listedObject, versionsShown bool) objectListing {
 // case-insensitive display name a full listing sorts by, because that is the
 // only order S3 itself can paginate in.
 func listObjectPage(ctx context.Context, s3 S3, bucketName, prefix, cursor string, listRecursive bool, perPage int) (objectListing, error) {
-	perPage = max(perPage, 1)
 	opts := minio.ListObjectsOptions{
 		Recursive:  listRecursive,
 		Prefix:     prefix,
@@ -422,7 +421,7 @@ func cursorPage(listing objectListing, query listingQuery) objectPage {
 	return objectPage{
 		Objects:      listing.Objects,
 		Page:         len(query.Cursors) + 1,
-		PerPage:      max(query.PerPage, 1),
+		PerPage:      query.PerPage,
 		CursorPaging: true,
 		Cursors:      query.Cursors,
 		NextCursor:   listing.NextCursor,
@@ -450,7 +449,7 @@ func paginateObjects(objs []listedObject, query listingQuery, grouped bool) obje
 		}
 	}
 
-	perPage := max(query.PerPage, 1)
+	perPage := query.PerPage
 	totalPages := max((totalItems+perPage-1)/perPage, 1)
 	page := min(query.Page, totalPages)
 	start := min((page-1)*perPage, totalItems)
