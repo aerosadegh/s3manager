@@ -70,6 +70,7 @@ At least one instance must be configured. Each instance reads these variables:
 - `PUBLIC_URL`: A template for the public links of objects, for when they are served from a CDN or a custom domain (defaults to unset, which links to the object on `ENDPOINT` following `BUCKET_LOOKUP`). `{key}` is replaced by the object key and `{bucket}` by the bucket name, for example `https://files.example.com/{bucket}/{key}`; `{key}` is required
 - `PRESIGN_URL`: The address time-limited download links are signed for, for when the app reaches S3 under an address the link's users can't, such as a container network name (defaults to unset, which signs them for `ENDPOINT`). It is a URL without a path, for example `https://s3.example.com`, and requires `REGION`. The links must reach S3 with this host name unchanged, since it is part of the signature
 - `BUCKETS`: A comma-separated list of bucket names to show in addition to the ones the instance lists itself (defaults to unset), for example public buckets owned by someone else. They are shown even if the instance refuses to list its buckets, as it does for anonymous access
+- `READ_ONLY`: For credentials that can only read (defaults to `false`). Hides the buttons that create buckets, upload, delete and edit bucket policies, and refuses those requests. S3 still decides what the credentials may do, so give a read-only instance read-only credentials
 
 #### Application
 

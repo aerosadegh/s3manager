@@ -35,6 +35,8 @@ type S3InstanceConfig struct {
 	// Buckets are listed on top of the ones the instance reports itself, so
 	// that buckets owned by someone else, like public datasets, can be browsed.
 	Buckets []string
+	// ReadOnly is for credentials that can only read. See S3Instance.ReadOnly.
+	ReadOnly bool
 }
 
 // S3Instance is a configured S3 instance and its client.
@@ -54,6 +56,11 @@ type S3Instance struct {
 	// Buckets are the configured bucket names that are always listed, even
 	// when the instance does not report them or refuses to list its buckets.
 	Buckets []string
+	// ReadOnly hides the controls that change what is stored (creating
+	// buckets, uploading, deleting, editing policies) and refuses the requests
+	// behind them. S3 has no way to ask what credentials may do, so this is
+	// configured rather than detected.
+	ReadOnly bool
 }
 
 // S3Instances is the ordered set of configured S3 instances. It is built once
@@ -121,6 +128,7 @@ func NewS3Instances(configs []S3InstanceConfig) (S3Instances, error) {
 			BucketLookup: bucketLookup,
 			PublicURL:    config.PublicURL,
 			Buckets:      config.Buckets,
+			ReadOnly:     config.ReadOnly,
 		})
 	}
 
@@ -186,6 +194,23 @@ func WithInstance(instances S3Instances, handler func(S3) http.HandlerFunc) http
 	return func(w http.ResponseWriter, r *http.Request) {
 		instance, ok := resolveInstance(w, r, instances)
 		if !ok {
+			return
+		}
+
+		handler(instance.Client)(w, r)
+	}
+}
+
+// WithWritableInstance is WithInstance for a handler that changes what is
+// stored, which a read-only instance refuses.
+func WithWritableInstance(instances S3Instances, handler func(S3) http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		instance, ok := resolveInstance(w, r, instances)
+		if !ok {
+			return
+		}
+		if instance.ReadOnly {
+			http.Error(w, fmt.Sprintf("S3 instance '%s' is read-only", instance.Name), http.StatusForbidden)
 			return
 		}
 

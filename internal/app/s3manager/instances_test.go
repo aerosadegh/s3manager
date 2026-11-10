@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -344,6 +345,93 @@ func TestWithInstance(t *testing.T) {
 
 			is.Equal(tc.expectedStatusCode, resp.StatusCode)                 // status code
 			is.True(strings.Contains(string(body), tc.expectedBodyContains)) // body
+		})
+	}
+}
+
+func TestNewS3InstancesReadOnly(t *testing.T) {
+	t.Parallel()
+	is := is.New(t)
+
+	instances, err := s3manager.NewS3Instances([]s3manager.S3InstanceConfig{
+		{Name: "writable", Endpoint: "localhost:9000", AccessKeyID: "key", SecretAccessKey: "secret", SignatureType: "V4"},
+		{Name: "viewer", Endpoint: "localhost:9000", AccessKeyID: "key", SecretAccessKey: "secret", SignatureType: "V4", ReadOnly: true},
+	})
+	is.NoErr(err)
+
+	is.True(!instances[0].ReadOnly) // writable unless configured otherwise
+	is.True(instances[1].ReadOnly)  // read-only as configured
+}
+
+func TestWithWritableInstance(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		it                   string
+		instanceName         string
+		expectedStatusCode   int
+		expectedBodyContains string
+		expectHandlerCalled  bool
+	}{
+		{
+			it:                   "delegates to the handler of a writable instance",
+			instanceName:         "writable",
+			expectedStatusCode:   http.StatusOK,
+			expectedBodyContains: "http://localhost:9000",
+			expectHandlerCalled:  true,
+		},
+		{
+			it:                   "refuses a read-only instance",
+			instanceName:         "viewer",
+			expectedStatusCode:   http.StatusForbidden,
+			expectedBodyContains: "S3 instance 'viewer' is read-only",
+		},
+		{
+			it:                   "returns not found for an unknown instance",
+			instanceName:         "unknown",
+			expectedStatusCode:   http.StatusNotFound,
+			expectedBodyContains: "Instance not found",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.it, func(t *testing.T) {
+			t.Parallel()
+			is := is.New(t)
+
+			s3 := &mocks.S3Mock{EndpointURLFunc: mustParseURLFunc("http://localhost:9000")}
+			instances := s3manager.S3Instances{
+				{ID: "1", Name: "writable", Client: s3},
+				{ID: "2", Name: "viewer", Client: s3, ReadOnly: true},
+			}
+
+			var called atomic.Bool
+			handler := func(s3 s3manager.S3) http.HandlerFunc {
+				return func(w http.ResponseWriter, _ *http.Request) {
+					called.Store(true)
+					_, err := io.WriteString(w, s3.EndpointURL().String())
+					is.NoErr(err)
+				}
+			}
+
+			r := mux.NewRouter()
+			r.Handle("/{instance}/endpoint", s3manager.WithWritableInstance(instances, handler)).Methods(http.MethodPost)
+
+			ts := httptest.NewServer(r)
+			defer ts.Close()
+
+			resp, err := http.Post(ts.URL+"/"+tc.instanceName+"/endpoint", "text/plain", nil)
+			is.NoErr(err)
+			defer func() {
+				err = resp.Body.Close()
+				is.NoErr(err)
+			}()
+			body, err := io.ReadAll(resp.Body)
+			is.NoErr(err)
+
+			is.Equal(tc.expectedStatusCode, resp.StatusCode)                 // status code
+			is.True(strings.Contains(string(body), tc.expectedBodyContains)) // body
+			is.Equal(tc.expectHandlerCalled, called.Load())                  // handler reached
 		})
 	}
 }

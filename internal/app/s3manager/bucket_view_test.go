@@ -548,12 +548,20 @@ func getBucketView(t *testing.T, listObjects func(context.Context, string, minio
 // getBucketViewWithOptions is getBucketView with the given options.
 func getBucketViewWithOptions(t *testing.T, listObjects func(context.Context, string, minio.ListObjectsOptions) <-chan minio.ObjectInfo, query url.Values, opts s3manager.Options) string {
 	t.Helper()
+
+	return getBucketViewOf(t, &s3manager.S3Instance{ID: "1", Name: "primary"}, listObjects, query, opts)
+}
+
+// getBucketViewOf is getBucketViewWithOptions for the given instance, which
+// must be named primary. Its client is replaced by one serving the listing.
+func getBucketViewOf(t *testing.T, instance *s3manager.S3Instance, listObjects func(context.Context, string, minio.ListObjectsOptions) <-chan minio.ObjectInfo, query url.Values, opts s3manager.Options) string {
+	t.Helper()
 	is := is.New(t)
 
-	s3 := &mocks.S3Mock{
+	instance.Client = &mocks.S3Mock{
 		ListObjectsFunc: listObjects,
 	}
-	instances := s3manager.S3Instances{{ID: "1", Name: "primary", Client: s3}}
+	instances := s3manager.S3Instances{instance}
 	templates := os.DirFS(filepath.Join("..", "..", "..", "web", "template"))
 
 	r := mux.NewRouter()
@@ -590,6 +598,39 @@ func datedListing(count int) func(context.Context, string, minio.ListObjectsOpti
 
 		return objectStream(ctx, objects)
 	}
+}
+
+func TestHandleBucketViewReadOnly(t *testing.T) {
+	t.Parallel()
+
+	opts := s3manager.Options{AllowDelete: true}
+
+	t.Run("offers changes on a writable instance", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		body := getBucketViewOf(t, &s3manager.S3Instance{ID: "1", Name: "primary"}, datedListing(3), nil, opts)
+
+		is.True(strings.Contains(body, `id="fab-menu"`))                // the upload button
+		is.True(strings.Contains(body, `onclick="openPolicyDialog()"`)) // editing the policy
+		is.True(strings.Contains(body, `onclick="deleteKeys(`))         // deleting objects
+		is.True(strings.Contains(body, `onclick="bulkDelete()"`))       // deleting selected objects
+	})
+
+	t.Run("hides changes on a read-only instance", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		body := getBucketViewOf(t, &s3manager.S3Instance{ID: "1", Name: "primary", ReadOnly: true}, datedListing(3), nil, opts)
+
+		is.True(!strings.Contains(body, `id="fab-menu"`))                // no upload button
+		is.True(!strings.Contains(body, "Upload files"))                 // nor its actions
+		is.True(!strings.Contains(body, `onclick="openPolicyDialog()"`)) // no policy editing
+		is.True(!strings.Contains(body, `onclick="deleteKeys(`))         // no deleting, although allowed
+		is.True(!strings.Contains(body, `onclick="bulkDelete()"`))       // not even in bulk
+		is.True(strings.Contains(body, `<span>Change path</span>`))      // changing the path moved to the menu
+		is.True(strings.Contains(body, "object-00002"))                  // the objects are still listed
+	})
 }
 
 func TestHandleBucketViewDefaultSort(t *testing.T) {

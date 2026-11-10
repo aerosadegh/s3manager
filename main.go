@@ -114,6 +114,7 @@ func parseS3Instances() []s3manager.S3InstanceConfig {
 			PublicURL:           viper.GetString(prefix + "PUBLIC_URL"),
 			PresignURL:          viper.GetString(prefix + "PRESIGN_URL"),
 			Buckets:             parseList(viper.GetString(prefix + "BUCKETS")),
+			ReadOnly:            viper.GetBool(prefix + "READ_ONLY"),
 		}
 
 		// Anonymous requests are not signed, so they need no key pair. That is
@@ -171,6 +172,11 @@ func main() {
 	withInstanceAndOptions := func(handler func(s3manager.S3, s3manager.Options) http.HandlerFunc) http.Handler {
 		return withInstance(func(s3 s3manager.S3) http.HandlerFunc { return handler(s3, opts) })
 	}
+	// withWritableInstance is withInstance for a handler that changes what is
+	// stored, which a read-only instance refuses.
+	withWritableInstance := func(handler func(s3manager.S3) http.HandlerFunc) http.Handler {
+		return s3manager.WithWritableInstance(instances, handler)
+	}
 
 	r := mux.NewRouter()
 
@@ -181,8 +187,10 @@ func main() {
 	// S3 management endpoints, all scoped to an instance.
 	r.Handle("/{instance}/buckets", s3manager.HandleBucketsView(instances, templates, opts)).Methods(http.MethodGet)
 	r.Handle("/{instance}/buckets/{bucketName}{path:(?:/.*)?}", s3manager.HandleBucketView(instances, templates, opts)).Methods(http.MethodGet)
-	r.Handle("/{instance}/api/buckets", withInstance(s3manager.HandleCreateBucket)).Methods(http.MethodPost)
-	r.Handle("/{instance}/api/buckets/{bucketName}/objects", withInstanceAndOptions(s3manager.HandleCreateObject)).Methods(http.MethodPost)
+	r.Handle("/{instance}/api/buckets", withWritableInstance(s3manager.HandleCreateBucket)).Methods(http.MethodPost)
+	r.Handle("/{instance}/api/buckets/{bucketName}/objects", withWritableInstance(func(s3 s3manager.S3) http.HandlerFunc {
+		return s3manager.HandleCreateObject(s3, opts)
+	})).Methods(http.MethodPost)
 	r.Handle("/{instance}/api/buckets/{bucketName}/objects/bulk-download", withInstanceAndOptions(s3manager.HandleBulkDownloadObjects)).Methods(http.MethodPost)
 	r.Handle("/{instance}/api/buckets/{bucketName}/objects/{objectName:.*}/url", s3manager.HandleGenerateURL(instances)).Methods(http.MethodGet)
 	r.Handle("/{instance}/api/buckets/{bucketName}/objects/{objectName:.*}/public-access", s3manager.HandleCheckPublicAccess(instances)).Methods(http.MethodGet)
@@ -191,11 +199,11 @@ func main() {
 	}
 	r.Handle("/{instance}/api/buckets/{bucketName}/objects/{objectName:.*}", withInstanceAndOptions(s3manager.HandleGetObject)).Methods(http.MethodGet)
 	if opts.AllowDelete {
-		r.Handle("/{instance}/api/buckets/{bucketName}", withInstance(s3manager.HandleDeleteBucket)).Methods(http.MethodDelete)
-		r.Handle("/{instance}/api/buckets/{bucketName}/objects/bulk-delete", withInstance(s3manager.HandleBulkDeleteObjects)).Methods(http.MethodPost)
+		r.Handle("/{instance}/api/buckets/{bucketName}", withWritableInstance(s3manager.HandleDeleteBucket)).Methods(http.MethodDelete)
+		r.Handle("/{instance}/api/buckets/{bucketName}/objects/bulk-delete", withWritableInstance(s3manager.HandleBulkDeleteObjects)).Methods(http.MethodPost)
 	}
 	r.Handle("/{instance}/api/buckets/{bucketName}/policy", withInstance(s3manager.HandleGetBucketPolicy)).Methods(http.MethodGet)
-	r.Handle("/{instance}/api/buckets/{bucketName}/policy", withInstance(s3manager.HandlePutBucketPolicy)).Methods(http.MethodPut)
+	r.Handle("/{instance}/api/buckets/{bucketName}/policy", withWritableInstance(s3manager.HandlePutBucketPolicy)).Methods(http.MethodPut)
 
 	handler := http.NewCrossOriginProtection().Handler(r)
 

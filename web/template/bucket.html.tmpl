@@ -33,12 +33,23 @@
                 <i>more_vert</i>
             </button>
             <menu id="bucket-menu" class="left no-wrap border">
+                {{- /* A read-only instance has no upload button, which is
+                    where changing the path lives otherwise. */}}
+                {{ if $.CurrentS3.ReadOnly }}
+                <li>
+                    <a data-ui="#dialog-change-path">
+                        <i>create_new_folder</i>
+                        <span>Change path</span>
+                    </a>
+                </li>
+                {{ else }}
                 <li>
                     <a onclick="openPolicyDialog()">
                         <i>description</i>
                         <span>Edit policy</span>
                     </a>
                 </li>
+                {{ end }}
                 {{- /* Only an empty bucket can be deleted, which an unsearched
                     view of its top level shows. */}}
                 {{ if and $.AllowDelete (not .Objects) (not .Search) (not .CurrentPath) }}
@@ -362,7 +373,7 @@
 
 <div id="uploads"></div>
 
-{{ if not .ErrorMessage }}
+{{ if and (not .ErrorMessage) (not .CurrentS3.ReadOnly) }}
 <div class="fixed right bottom margin">
     <button class="circle extra" data-ui="#fab-menu">
         <i>add</i>

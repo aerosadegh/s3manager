@@ -85,7 +85,7 @@ func HandleBucketView(instances S3Instances, templates fs.FS, opts Options) http
 			BucketName:     bucketName,
 			CurrentPath:    path,
 			Paths:          removeEmptyStrings(strings.Split(path, "/")),
-			AllowDelete:    opts.AllowDelete,
+			AllowDelete:    opts.AllowDelete && !instance.ReadOnly,
 			CurrentS3:      instance,
 			S3Instances:    instances,
 			SortBy:         query.SortBy,
