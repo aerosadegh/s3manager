@@ -1,0 +1,65 @@
+name: Image
+
+# Publishes the container image to the GitHub Container Registry, as
+# ghcr.io/<owner>/<repository>, for every pushed v* tag and only then.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions: {}
+
+jobs:
+  image:
+    name: Build and push image
+    # The upstream repository publishes its image to Docker Hub from
+    # release.yml instead.
+    if: github.repository != 'cloudlena/s3manager'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # Needed to check out the code.
+      packages: write # Needed to push to the GitHub Container Registry.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Run tests
+        run: make test
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # Tag v1.2.3 is pushed as v1.2.3, 1.2.3, 1.2 and latest. A
+          # pre-release like v1.3.0-rc.1 is pushed as v1.3.0-rc.1 and
+          # 1.3.0-rc.1 only, and never becomes latest.
+          flavor: latest=false
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The arm64 image is built under emulation.
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Containerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          # Includes org.opencontainers.image.source, which links the package
+          # to this repository.
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
