@@ -26,6 +26,7 @@ func TestHandleBucketsView(t *testing.T) {
 		instanceName         string
 		bucketNames          []string
 		configuredBuckets    []string
+		readOnly             bool
 		listBucketsFunc      func(context.Context) ([]minio.BucketInfo, error)
 		expectedStatusCode   int
 		expectedBodyContains string
@@ -49,6 +50,39 @@ func TestHandleBucketsView(t *testing.T) {
 			},
 			expectedStatusCode:   http.StatusOK,
 			expectedBodyContains: "No buckets yet",
+			// The placeholder's button and the floating one.
+			expectedCount: map[string]int{"Create bucket</span>": 2},
+		},
+		{
+			it:           "offers to create a bucket",
+			instanceName: "primary",
+			listBucketsFunc: func(context.Context) ([]minio.BucketInfo, error) {
+				return []minio.BucketInfo{{Name: "BUCKET-NAME"}}, nil
+			},
+			expectedStatusCode:   http.StatusOK,
+			expectedBodyContains: "Create bucket</span>",
+		},
+		{
+			it:           "offers no bucket creation on a read-only instance",
+			instanceName: "primary",
+			readOnly:     true,
+			listBucketsFunc: func(context.Context) ([]minio.BucketInfo, error) {
+				return []minio.BucketInfo{{Name: "BUCKET-NAME"}}, nil
+			},
+			expectedStatusCode:   http.StatusOK,
+			expectedBodyContains: "BUCKET-NAME",
+			unexpectedInBody:     []string{"Create bucket</span>"},
+		},
+		{
+			it:           "renders a placeholder without creation on a read-only instance",
+			instanceName: "primary",
+			readOnly:     true,
+			listBucketsFunc: func(context.Context) ([]minio.BucketInfo, error) {
+				return []minio.BucketInfo{}, nil
+			},
+			expectedStatusCode:   http.StatusOK,
+			expectedBodyContains: "No buckets yet",
+			unexpectedInBody:     []string{"Create bucket</span>", "Create your first bucket"},
 		},
 		{
 			it:           "only renders the configured bucket",
@@ -122,7 +156,7 @@ func TestHandleBucketsView(t *testing.T) {
 			is := is.New(t)
 
 			s3 := &mocks.S3Mock{ListBucketsFunc: tc.listBucketsFunc}
-			instances := s3manager.S3Instances{{ID: "1", Name: "primary", Client: s3, Buckets: tc.configuredBuckets}}
+			instances := s3manager.S3Instances{{ID: "1", Name: "primary", Client: s3, Buckets: tc.configuredBuckets, ReadOnly: tc.readOnly}}
 			templates := os.DirFS(filepath.Join("..", "..", "..", "web", "template"))
 
 			r := mux.NewRouter()

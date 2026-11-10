@@ -57,18 +57,20 @@
         <div class="center-align">
             <i class="extra secondary-text">folder_open</i>
             <h6>No buckets yet</h6>
+            {{ if not .CurrentS3.ReadOnly }}
             <p class="secondary-text">Create your first bucket to get started.</p>
             <div class="space"></div>
             <button class="round" data-ui="#dialog-create-bucket">
                 <i>add</i>
                 <span>Create bucket</span>
             </button>
+            {{ end }}
         </div>
     </div>
     {{ end }}
 </main>
 
-{{ if not .ErrorMessage }}
+{{ if and (not .ErrorMessage) (not .CurrentS3.ReadOnly) }}
 <button class="circle extra fixed right bottom margin" data-ui="#dialog-create-bucket">
     <i>add</i>
     <span class="tooltip left">Create bucket</span>

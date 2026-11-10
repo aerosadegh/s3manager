@@ -10,6 +10,10 @@ permissions: {}
 jobs:
   release:
     name: Release
+    # Publishes to cloudlena's Docker Hub, so it runs upstream only; forks
+    # publish their image from image.yml. The provenance jobs need this one
+    # and are skipped with it.
+    if: github.repository == 'cloudlena/s3manager'
     runs-on: ubuntu-latest
     permissions:
       contents: write # Needed to create the GitHub release and upload its assets.

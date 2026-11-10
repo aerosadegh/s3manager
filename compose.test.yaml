@@ -1,0 +1,138 @@
+# A MinIO to try S3 Manager against, with two apps on it:
+#
+#   http://localhost:8080  admin   (root credentials, can do everything)
+#   http://localhost:8081  viewer  (credentials that can only read the archive
+#                                   bucket; READ_ONLY, newest objects first)
+#   http://localhost:9001  MinIO console (s3manager / s3manager)
+#
+# The archive bucket holds 250 objects last modified over the past three
+# years; the private bucket is there for the viewer not to see.
+#
+# The apps and the seeder are binaries built on the host and mounted into
+# plain Alpine containers, so the stack needs neither a Go image nor module
+# downloads, and picks up a rebuilt app on `restart admin viewer`.
+# `make test-stack` builds them and starts it; without make:
+#
+#   CGO_ENABLED=0 GOOS=linux go build -o test/stack/bin/s3manager .
+#   CGO_ENABLED=0 GOOS=linux go build -o test/stack/bin/seed ./test/seed
+#   docker compose -f compose.test.yaml up
+#
+# MinIO keeps no volume, so `down` resets everything.
+
+name: s3manager-test
+
+x-minio-image: &minio-image docker.io/minio/minio:RELEASE.2024-06-04T19-20-08Z
+
+x-s3manager: &s3manager
+  image: docker.io/library/alpine:latest
+  user: nobody
+  volumes:
+    - ./test/stack/bin:/stack:ro
+  command: ["/stack/s3manager"]
+  depends_on:
+    seed:
+      condition: service_completed_successfully
+  healthcheck:
+    test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+    interval: 2s
+    retries: 15
+
+services:
+  minio:
+    image: *minio-image
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: s3manager
+      MINIO_ROOT_PASSWORD: s3manager
+    ports:
+      - 9000:9000
+      - 9001:9001
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 2s
+      retries: 30
+
+  # Creates the buckets and a user that may only list and read the archive
+  # bucket. Runs once; every step can be repeated.
+  setup:
+    image: *minio-image
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set local http://minio:9000 s3manager s3manager
+        mc mb --ignore-existing local/archive local/private
+        echo "Only the admin can read this." | mc pipe local/private/secret.txt
+        cat > /tmp/readonly-archive.json <<'EOF'
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {"Effect": "Allow", "Action": ["s3:GetBucketLocation", "s3:ListBucket"], "Resource": ["arn:aws:s3:::archive"]},
+            {"Effect": "Allow", "Action": ["s3:GetObject"], "Resource": ["arn:aws:s3:::archive/*"]}
+          ]
+        }
+        EOF
+        mc admin policy create local readonly-archive /tmp/readonly-archive.json
+        mc admin user add local archive-viewer archive-viewer-secret
+        # The image has no grep, and attaching a policy twice fails.
+        case "$$(mc admin user info local archive-viewer)" in
+          *readonly-archive*) ;;
+          *) mc admin policy attach local readonly-archive --user archive-viewer ;;
+        esac
+
+  # Fills the archive bucket. Runs once; running it again rewrites the same
+  # objects.
+  seed:
+    image: docker.io/library/alpine:latest
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    volumes:
+      - ./test/stack/bin:/stack:ro
+    command: ["/stack/seed"]
+    environment:
+      SEED_ENDPOINT: minio:9000
+      SEED_ACCESS_KEY_ID: s3manager
+      SEED_SECRET_ACCESS_KEY: s3manager
+      SEED_BUCKET: archive
+      SEED_COUNT: "250"
+
+  admin:
+    <<: *s3manager
+    ports:
+      - 8080:8080
+    environment:
+      S3_1_NAME: admin
+      S3_1_ENDPOINT: minio:9000
+      S3_1_ACCESS_KEY_ID: s3manager
+      S3_1_SECRET_ACCESS_KEY: s3manager
+      S3_1_USE_SSL: "false"
+      S3_1_REGION: us-east-1
+      # The app reaches MinIO as minio:9000, which a browser can't, so links
+      # are made for the address published on the host.
+      S3_1_PRESIGN_URL: http://localhost:9000
+      S3_1_PUBLIC_URL: http://localhost:9000/{bucket}/{key}
+
+  viewer:
+    <<: *s3manager
+    ports:
+      - 8081:8080
+    environment:
+      S3_1_NAME: archive-viewer
+      S3_1_ENDPOINT: minio:9000
+      S3_1_ACCESS_KEY_ID: archive-viewer
+      S3_1_SECRET_ACCESS_KEY: archive-viewer-secret
+      S3_1_USE_SSL: "false"
+      S3_1_REGION: us-east-1
+      S3_1_PRESIGN_URL: http://localhost:9000
+      S3_1_PUBLIC_URL: http://localhost:9000/{bucket}/{key}
+      # The user can't list buckets, so name the one it can read.
+      S3_1_BUCKETS: archive
+      # Hide what the credentials can't do anyway.
+      S3_1_READ_ONLY: "true"
+      ALLOW_DELETE: "false"
+      DEFAULT_SORT_BY: lastModified
+      DEFAULT_SORT_ORDER: desc
+      TZ: Asia/Tehran

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloudlena/s3manager/internal/app/s3manager"
 	"github.com/cloudlena/s3manager/internal/app/s3manager/mocks"
@@ -540,18 +541,31 @@ func paddedKeys(count int) []string {
 // and returns the response body.
 func getBucketView(t *testing.T, listObjects func(context.Context, string, minio.ListObjectsOptions) <-chan minio.ObjectInfo, query url.Values) string {
 	t.Helper()
+
+	return getBucketViewWithOptions(t, listObjects, query, s3manager.Options{AllowDelete: true})
+}
+
+// getBucketViewWithOptions is getBucketView with the given options.
+func getBucketViewWithOptions(t *testing.T, listObjects func(context.Context, string, minio.ListObjectsOptions) <-chan minio.ObjectInfo, query url.Values, opts s3manager.Options) string {
+	t.Helper()
+
+	return getBucketViewOf(t, &s3manager.S3Instance{ID: "1", Name: "primary"}, listObjects, query, opts)
+}
+
+// getBucketViewOf is getBucketViewWithOptions for the given instance, which
+// must be named primary. Its client is replaced by one serving the listing.
+func getBucketViewOf(t *testing.T, instance *s3manager.S3Instance, listObjects func(context.Context, string, minio.ListObjectsOptions) <-chan minio.ObjectInfo, query url.Values, opts s3manager.Options) string {
+	t.Helper()
 	is := is.New(t)
 
-	s3 := &mocks.S3Mock{
+	instance.Client = &mocks.S3Mock{
 		ListObjectsFunc: listObjects,
 	}
-	instances := s3manager.S3Instances{{ID: "1", Name: "primary", Client: s3}}
+	instances := s3manager.S3Instances{instance}
 	templates := os.DirFS(filepath.Join("..", "..", "..", "web", "template"))
 
 	r := mux.NewRouter()
-	r.Handle("/{instance}/buckets/{bucketName}{path:(?:/.*)?}", s3manager.HandleBucketView(instances, templates, s3manager.Options{
-		AllowDelete: true,
-	})).Methods(http.MethodGet)
+	r.Handle("/{instance}/buckets/{bucketName}{path:(?:/.*)?}", s3manager.HandleBucketView(instances, templates, opts)).Methods(http.MethodGet)
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
@@ -567,6 +581,123 @@ func getBucketView(t *testing.T, listObjects func(context.Context, string, minio
 	is.Equal(http.StatusOK, resp.StatusCode) // status code
 
 	return string(body)
+}
+
+// datedListing serves count keys in key order, each modified an hour after the
+// one before, so the last key is the most recent.
+func datedListing(count int) func(context.Context, string, minio.ListObjectsOptions) <-chan minio.ObjectInfo {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	return func(ctx context.Context, _ string, opts minio.ListObjectsOptions) <-chan minio.ObjectInfo {
+		var objects []minio.ObjectInfo
+		for i, key := range paddedKeys(count) {
+			if key > opts.StartAfter {
+				objects = append(objects, minio.ObjectInfo{Key: key, LastModified: start.Add(time.Duration(i) * time.Hour)})
+			}
+		}
+
+		return objectStream(ctx, objects)
+	}
+}
+
+func TestHandleBucketViewReadOnly(t *testing.T) {
+	t.Parallel()
+
+	opts := s3manager.Options{AllowDelete: true}
+
+	t.Run("offers changes on a writable instance", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		body := getBucketViewOf(t, &s3manager.S3Instance{ID: "1", Name: "primary"}, datedListing(3), nil, opts)
+
+		is.True(strings.Contains(body, `id="fab-menu"`))                // the upload button
+		is.True(strings.Contains(body, `onclick="openPolicyDialog()"`)) // editing the policy
+		is.True(strings.Contains(body, `onclick="deleteKeys(`))         // deleting objects
+		is.True(strings.Contains(body, `onclick="bulkDelete()"`))       // deleting selected objects
+	})
+
+	t.Run("hides changes on a read-only instance", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		body := getBucketViewOf(t, &s3manager.S3Instance{ID: "1", Name: "primary", ReadOnly: true}, datedListing(3), nil, opts)
+
+		is.True(!strings.Contains(body, `id="fab-menu"`))                // no upload button
+		is.True(!strings.Contains(body, "Upload files"))                 // nor its actions
+		is.True(!strings.Contains(body, `onclick="openPolicyDialog()"`)) // no policy editing
+		is.True(!strings.Contains(body, `onclick="deleteKeys(`))         // no deleting, although allowed
+		is.True(!strings.Contains(body, `onclick="bulkDelete()"`))       // not even in bulk
+		is.True(strings.Contains(body, `<span>Change path</span>`))      // changing the path moved to the menu
+		is.True(strings.Contains(body, "object-00002"))                  // the objects are still listed
+	})
+}
+
+func TestHandleBucketViewDefaultSort(t *testing.T) {
+	t.Parallel()
+
+	newestFirst := s3manager.Options{DefaultSortBy: "lastModified", DefaultSortOrder: "desc"}
+
+	t.Run("lists in the configured order", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		body := getBucketViewWithOptions(t, datedListing(60), nil, newestFirst)
+
+		is.True(strings.Contains(body, "Showing 1–25 of 60"))                              // a full listing, so with a total
+		is.True(strings.Index(body, "object-00059") < strings.Index(body, "object-00058")) // newest first
+		is.True(!strings.Contains(body, "object-00034"))                                   // the 26th newest is on the next page
+		is.True(strings.Contains(body, `const currentSortBy = "lastModified"`))            // the header shows it
+		is.True(strings.Contains(body, `const currentSortOrder = "desc"`))                 // in that direction
+	})
+
+	t.Run("lets a picked order override it", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		body := getBucketViewWithOptions(t, datedListing(60), url.Values{"sortBy": {"key"}, "sortOrder": {"asc"}}, newestFirst)
+
+		is.True(strings.Contains(body, "object-00000")) // oldest key first
+		is.True(!strings.Contains(body, "of 60"))       // paged in S3 again
+	})
+
+	t.Run("keeps key order when none is configured", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		body := getBucketViewWithOptions(t, datedListing(60), nil, s3manager.Options{})
+
+		is.True(strings.Contains(body, "object-00000")) // first key first
+		is.True(!strings.Contains(body, "of 60"))       // paged in S3
+	})
+}
+
+func TestValidateSort(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		sortBy, sortOrder string
+		valid             bool
+	}{
+		{"", "", true},
+		{"key", "asc", true},
+		{"lastModified", "desc", true},
+		{"size", "", true},
+		{"owner", "desc", true},
+		{"modified", "desc", false},
+		{"LastModified", "desc", false},
+		{"key", "descending", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.sortBy+"/"+tc.sortOrder, func(t *testing.T) {
+			t.Parallel()
+			is := is.New(t)
+
+			err := s3manager.ValidateSort(tc.sortBy, tc.sortOrder)
+			is.Equal(tc.valid, err == nil) // valid sort
+		})
+	}
 }
 
 func TestHandleBucketViewPaging(t *testing.T) {

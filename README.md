@@ -70,6 +70,7 @@ At least one instance must be configured. Each instance reads these variables:
 - `PUBLIC_URL`: A template for the public links of objects, for when they are served from a CDN or a custom domain (defaults to unset, which links to the object on `ENDPOINT` following `BUCKET_LOOKUP`). `{key}` is replaced by the object key and `{bucket}` by the bucket name, for example `https://files.example.com/{bucket}/{key}`; `{key}` is required
 - `PRESIGN_URL`: The address time-limited download links are signed for, for when the app reaches S3 under an address the link's users can't, such as a container network name (defaults to unset, which signs them for `ENDPOINT`). It is a URL without a path, for example `https://s3.example.com`, and requires `REGION`. The links must reach S3 with this host name unchanged, since it is part of the signature
 - `BUCKETS`: A comma-separated list of bucket names to show in addition to the ones the instance lists itself (defaults to unset), for example public buckets owned by someone else. They are shown even if the instance refuses to list its buckets, as it does for anonymous access
+- `READ_ONLY`: For credentials that can only read (defaults to `false`). Hides the buttons that create buckets, upload, delete and edit bucket policies, and refuses those requests. S3 still decides what the credentials may do, so give a read-only instance read-only credentials
 
 #### Application
 
@@ -80,6 +81,8 @@ These variables apply to the whole app and are never prefixed:
 - `LIST_RECURSIVE`: List all objects in buckets recursively (defaults to `false`)
 - `SHOW_VERSIONS`: Show all object versions in bucket view and enable version-specific downloads (defaults to `false`; bucket must have versioning enabled)
 - `SHOW_METADATA`: Show the object metadata action and enable the metadata endpoint (defaults to `true`)
+- `DEFAULT_SORT_BY`: The column a bucket's objects are sorted by until the user picks another (defaults to `key`; valid values are `key, size, owner, lastModified`)
+- `DEFAULT_SORT_ORDER`: The direction of that sort (defaults to `asc`; valid values are `asc, desc`). `DEFAULT_SORT_BY=lastModified` with `DEFAULT_SORT_ORDER=desc` lists the most recent objects first. Any order but `key` ascending loads the whole location on every visit, see [Browsing large buckets](#browsing-large-buckets)
 - `TZ`: IANA timezone used when displaying object Last Modified times (defaults to UTC; for example `Europe/Berlin`)
 - `BUCKET_NAME`: Show only this bucket, or these comma-separated buckets, in the bucket list of every instance (defaults to unset, showing all buckets). It only filters the list: other buckets can still be opened by name or URL, so it is not an access restriction
 - `SSE_TYPE`: The server side encryption applied to uploaded objects (defaults to unset, which leaves it off; valid values are `SSE`, `KMS` and `SSE-C`)
@@ -89,7 +92,8 @@ These variables apply to the whole app and are never prefixed:
 
 ### Browsing large buckets
 
-The default bucket view (sorted by name ascending, unsearched) asks S3 for one
+The bucket view sorted by name ascending and unsearched (the default unless
+`DEFAULT_SORT_BY` or `DEFAULT_SORT_ORDER` say otherwise) asks S3 for one
 page of objects at a time, so it is fast for any bucket size. Since S3 never
 reports how much it did not return, that view has no total object count and no
 last page to jump to. Any other view (another sort, a search, `All` items per page or `SHOW_VERSIONS`)
@@ -156,6 +160,7 @@ Then the instance behind the `s3manager-teamx` service has `ROOT_URL=teamx` and 
 
 ```shell
 podman compose up  # two RustFS instances and an S3 Manager for both at http://localhost:8080
+make test-stack  # MinIO with 250 dated objects, an admin app at http://localhost:8080 and a read-only viewer at http://localhost:8081
 make run
 make test
 make lint

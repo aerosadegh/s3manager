@@ -1,6 +1,7 @@
 package s3manager
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -78,13 +79,13 @@ func HandleBucketView(instances S3Instances, templates fs.FS, opts Options) http
 		bucketName := mux.Vars(r)["bucketName"]
 		path := strings.TrimPrefix(mux.Vars(r)["path"], "/")
 
-		query := parseListingQuery(r.URL.Query())
+		query := parseListingQuery(r.URL.Query(), opts)
 		data := pageData{
 			RootURL:        opts.RootURL,
 			BucketName:     bucketName,
 			CurrentPath:    path,
 			Paths:          removeEmptyStrings(strings.Split(path, "/")),
-			AllowDelete:    opts.AllowDelete,
+			AllowDelete:    opts.AllowDelete && !instance.ReadOnly,
 			CurrentS3:      instance,
 			S3Instances:    instances,
 			SortBy:         query.SortBy,
@@ -161,9 +162,26 @@ func cursorPagingPossible(query listingQuery, opts Options) bool {
 		query.SortOrder == "asc"
 }
 
+// sortColumns are the columns a bucket view can be sorted by.
+var sortColumns = []string{"key", "size", "owner", "lastModified"}
+
+// ValidateSort reports an error unless sortBy and sortOrder name an order a
+// bucket view can be listed in. Empty values are valid and mean the default.
+func ValidateSort(sortBy, sortOrder string) error {
+	if sortBy != "" && !slices.Contains(sortColumns, sortBy) {
+		return fmt.Errorf("invalid sort column %q, valid values are %s", sortBy, strings.Join(sortColumns, ", "))
+	}
+	if sortOrder != "" && sortOrder != "asc" && sortOrder != "desc" {
+		return fmt.Errorf("invalid sort order %q, valid values are asc, desc", sortOrder)
+	}
+
+	return nil
+}
+
 // parseListingQuery reads a bucket view request's query parameters, falling
-// back to defaults for missing or invalid values. PerPage is always positive.
-func parseListingQuery(params url.Values) listingQuery {
+// back to defaults for missing or invalid values. The sort order falls back
+// to the configured one. PerPage is always positive.
+func parseListingQuery(params url.Values, opts Options) listingQuery {
 	query := listingQuery{
 		SortBy:    params.Get("sortBy"),
 		SortOrder: params.Get("sortOrder"),
@@ -174,10 +192,10 @@ func parseListingQuery(params url.Values) listingQuery {
 	}
 
 	if query.SortBy == "" {
-		query.SortBy = "key"
+		query.SortBy = cmp.Or(opts.DefaultSortBy, "key")
 	}
 	if query.SortOrder == "" {
-		query.SortOrder = "asc"
+		query.SortOrder = cmp.Or(opts.DefaultSortOrder, "asc")
 	}
 	if page, err := strconv.Atoi(params.Get("page")); err == nil && page > 0 {
 		query.Page = page
