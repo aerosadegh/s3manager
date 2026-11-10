@@ -42,6 +42,11 @@ type Options struct {
 	ShowVersions bool
 	// ShowMetadata enables the object metadata endpoint and action.
 	ShowMetadata bool
+	// DefaultSortBy and DefaultSortOrder are the order a bucket view lists its
+	// objects in until the user picks another, key ascending if unset. Any
+	// other order needs the full listing, so it is capped at maxScanObjects.
+	DefaultSortBy    string
+	DefaultSortOrder string
 	// SSE is the server side encryption applied to uploads, or nil. SSE-C
 	// objects can only be read back with the same key, so it is sent along
 	// with every read as well.

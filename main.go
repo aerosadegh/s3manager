@@ -51,16 +51,24 @@ func parseConfiguration() configuration {
 		log.Fatal(err)
 	}
 
+	sortBy := viper.GetString("DEFAULT_SORT_BY")
+	sortOrder := viper.GetString("DEFAULT_SORT_ORDER")
+	if err := s3manager.ValidateSort(sortBy, sortOrder); err != nil {
+		log.Fatal(err)
+	}
+
 	return configuration{
 		S3Instances: parseS3Instances(),
 		Options: s3manager.Options{
-			RootURL:       rootURL,
-			BucketNames:   parseList(viper.GetString("BUCKET_NAME")),
-			AllowDelete:   viper.GetBool("ALLOW_DELETE"),
-			ListRecursive: viper.GetBool("LIST_RECURSIVE"),
-			ShowVersions:  viper.GetBool("SHOW_VERSIONS"),
-			ShowMetadata:  viper.GetBool("SHOW_METADATA"),
-			SSE:           sse,
+			RootURL:          rootURL,
+			BucketNames:      parseList(viper.GetString("BUCKET_NAME")),
+			AllowDelete:      viper.GetBool("ALLOW_DELETE"),
+			ListRecursive:    viper.GetBool("LIST_RECURSIVE"),
+			ShowVersions:     viper.GetBool("SHOW_VERSIONS"),
+			ShowMetadata:     viper.GetBool("SHOW_METADATA"),
+			DefaultSortBy:    sortBy,
+			DefaultSortOrder: sortOrder,
+			SSE:              sse,
 		},
 		Port:    viper.GetString("PORT"),
 		Timeout: time.Duration(viper.GetInt("TIMEOUT")) * time.Second,

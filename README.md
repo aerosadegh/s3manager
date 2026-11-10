@@ -80,6 +80,8 @@ These variables apply to the whole app and are never prefixed:
 - `LIST_RECURSIVE`: List all objects in buckets recursively (defaults to `false`)
 - `SHOW_VERSIONS`: Show all object versions in bucket view and enable version-specific downloads (defaults to `false`; bucket must have versioning enabled)
 - `SHOW_METADATA`: Show the object metadata action and enable the metadata endpoint (defaults to `true`)
+- `DEFAULT_SORT_BY`: The column a bucket's objects are sorted by until the user picks another (defaults to `key`; valid values are `key, size, owner, lastModified`)
+- `DEFAULT_SORT_ORDER`: The direction of that sort (defaults to `asc`; valid values are `asc, desc`). `DEFAULT_SORT_BY=lastModified` with `DEFAULT_SORT_ORDER=desc` lists the most recent objects first. Any order but `key` ascending loads the whole location on every visit, see [Browsing large buckets](#browsing-large-buckets)
 - `TZ`: IANA timezone used when displaying object Last Modified times (defaults to UTC; for example `Europe/Berlin`)
 - `BUCKET_NAME`: Show only this bucket, or these comma-separated buckets, in the bucket list of every instance (defaults to unset, showing all buckets). It only filters the list: other buckets can still be opened by name or URL, so it is not an access restriction
 - `SSE_TYPE`: The server side encryption applied to uploaded objects (defaults to unset, which leaves it off; valid values are `SSE`, `KMS` and `SSE-C`)
@@ -89,7 +91,8 @@ These variables apply to the whole app and are never prefixed:
 
 ### Browsing large buckets
 
-The default bucket view (sorted by name ascending, unsearched) asks S3 for one
+The bucket view sorted by name ascending and unsearched (the default unless
+`DEFAULT_SORT_BY` or `DEFAULT_SORT_ORDER` say otherwise) asks S3 for one
 page of objects at a time, so it is fast for any bucket size. Since S3 never
 reports how much it did not return, that view has no total object count and no
 last page to jump to. Any other view (another sort, a search, `All` items per page or `SHOW_VERSIONS`)
