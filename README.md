@@ -160,6 +160,7 @@ Then the instance behind the `s3manager-teamx` service has `ROOT_URL=teamx` and 
 
 ```shell
 podman compose up  # two RustFS instances and an S3 Manager for both at http://localhost:8080
+make test-stack  # MinIO with 250 dated objects, an admin app at http://localhost:8080 and a read-only viewer at http://localhost:8081
 make run
 make test
 make lint

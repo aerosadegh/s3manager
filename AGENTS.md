@@ -9,6 +9,7 @@ make test
 make lint
 go test -run TestHandleBucketsView ./internal/app/s3manager/  # single test
 podman compose up  # two RustFS instances at localhost:9000 and :9002; app at localhost:8080
+make test-stack  # MinIO with seeded data; admin app at localhost:8080, READ_ONLY viewer at :8081 (compose.test.yaml)
 ```
 
 ## Architecture
